@@ -21,16 +21,28 @@ pub struct ServerCommandHandler {
 }
 
 impl ServerCommandHandler {
+    fn lookup_blocked_response() -> S2CMessage {
+        S2CMessage::ResponseError {
+            error: "too many failed session lookups, please try again later".to_string(),
+        }
+    }
+
     pub async fn handle_command(&self, command: C2SMessage) -> S2CMessage {
         match command {
             C2SMessage::InitializePublish { session_auth_token } => {
+                let client_ip = self.client.read().await.address.ip();
                 let mut server = self.server.write().await;
 
                 let session = if let Some(auth_token) = session_auth_token {
+                    if server.is_lookup_blocked(&client_ip) {
+                        return Self::lookup_blocked_response();
+                    }
+
                     let Some(session) = server
                         .pub_session_reclaim(self.client_id, &auth_token)
                         .await
                     else {
+                        server.record_failed_lookup(client_ip);
                         return S2CMessage::ResponseSessionInvalidId {};
                     };
 
@@ -49,7 +61,12 @@ impl ServerCommandHandler {
                 }
             }
             C2SMessage::InitializeSubscribe { session_id, .. } => {
+                let client_ip = self.client.read().await.address.ip();
                 let mut server = self.server.write().await;
+                if server.is_lookup_blocked(&client_ip) {
+                    return Self::lookup_blocked_response();
+                }
+
                 match server
                     .pub_session_subscribe(&session_id, self.client_id)
                     .await
@@ -62,6 +79,7 @@ impl ServerCommandHandler {
                         S2CMessage::ResponseInvalidClientState {}
                     }
                     PubSessionSubscribeResult::InvalidSessionId => {
+                        server.record_failed_lookup(client_ip);
                         S2CMessage::ResponseSessionInvalidId {}
                     }
                 }

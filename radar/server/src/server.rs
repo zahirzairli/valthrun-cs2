@@ -1,6 +1,12 @@
 use std::{
-    collections::BTreeMap,
-    net::SocketAddr,
+    collections::{
+        BTreeMap,
+        HashMap,
+    },
+    net::{
+        IpAddr,
+        SocketAddr,
+    },
     path::PathBuf,
     sync::{
         Arc,
@@ -47,6 +53,24 @@ use crate::{
     ClientState,
 };
 
+/// Length of the public session id used by viewers to subscribe to a session.
+const SESSION_ID_LENGTH: usize = 12;
+
+/// Length of the secret token used by publishers to reclaim their session.
+const SESSION_AUTH_TOKEN_LENGTH: usize = 32;
+
+/// Maximum size of a single websocket message or frame.
+const MAX_WS_MESSAGE_SIZE: usize = 256 * 1024;
+
+/// Number of failed session lookups an address may perform within `FAILED_LOOKUP_WINDOW`.
+const FAILED_LOOKUP_LIMIT: u32 = 10;
+const FAILED_LOOKUP_WINDOW: Duration = Duration::from_secs(60);
+
+struct FailedLookups {
+    window_start: Instant,
+    count: u32,
+}
+
 pub enum PubSessionOwner {
     Owned { client_id: u32 },
     Unbound { timestamp: Instant },
@@ -92,6 +116,7 @@ pub struct RadarServer {
 
     clients: BTreeMap<u32, Arc<RwLock<PubClient>>>,
     pub_sessions: BTreeMap<String, PubSession>,
+    failed_lookups: HashMap<IpAddr, FailedLookups>,
 
     www_acceptor: Option<JoinHandle<()>>,
 }
@@ -104,6 +129,7 @@ impl RadarServer {
 
             clients: Default::default(),
             pub_sessions: Default::default(),
+            failed_lookups: Default::default(),
 
             www_acceptor: None,
         };
@@ -147,6 +173,41 @@ impl RadarServer {
             log::info!("Session {} expired. Closing session.", &session_id);
             self.pub_session_close(&session_id).await;
         }
+
+        self.failed_lookups
+            .retain(|_, entry| entry.window_start.elapsed() < FAILED_LOOKUP_WINDOW);
+    }
+
+    /// Returns true if the address exceeded the allowed amount of failed session lookups.
+    pub fn is_lookup_blocked(&self, address: &IpAddr) -> bool {
+        self.failed_lookups.get(address).map_or(false, |entry| {
+            entry.window_start.elapsed() < FAILED_LOOKUP_WINDOW
+                && entry.count >= FAILED_LOOKUP_LIMIT
+        })
+    }
+
+    /// Record a failed session lookup (invalid session id or auth token) for the address.
+    pub fn record_failed_lookup(&mut self, address: IpAddr) {
+        let entry = self
+            .failed_lookups
+            .entry(address)
+            .or_insert_with(|| FailedLookups {
+                window_start: Instant::now(),
+                count: 0,
+            });
+
+        if entry.window_start.elapsed() >= FAILED_LOOKUP_WINDOW {
+            entry.window_start = Instant::now();
+            entry.count = 0;
+        }
+
+        entry.count += 1;
+        if entry.count == FAILED_LOOKUP_LIMIT {
+            log::info!(
+                "Address {} exceeded the failed session lookup limit. Blocking lookups.",
+                address
+            );
+        }
     }
 
     pub async fn listen_http(
@@ -165,10 +226,12 @@ impl RadarServer {
             .and(warp::ws())
             .map(move |_, address: Option<SocketAddr>, ws: warp::ws::Ws| {
                 let server = server.clone();
-                ws.on_upgrade(move |socket| async move {
-                    let Some(address) = address else { return };
-                    PubClient::serve_from_websocket(server, address, socket).await;
-                })
+                ws.max_message_size(MAX_WS_MESSAGE_SIZE)
+                    .max_frame_size(MAX_WS_MESSAGE_SIZE)
+                    .on_upgrade(move |socket| async move {
+                        let Some(address) = address else { return };
+                        PubClient::serve_from_websocket(server, address, socket).await;
+                    })
             })
             .boxed();
 
@@ -296,13 +359,13 @@ impl RadarServer {
         let session_id = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .map(char::from)
-            .take(6)
+            .take(SESSION_ID_LENGTH)
             .collect::<String>();
 
         let session_auth_token = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .map(char::from)
-            .take(12)
+            .take(SESSION_AUTH_TOKEN_LENGTH)
             .collect::<String>();
 
         self.pub_sessions.insert(
