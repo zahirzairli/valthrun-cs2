@@ -65,13 +65,19 @@ impl Enhancement for SniperCrosshair {
             .value_reference(memory.view_arc())
             .context("player pawn nullptr")?;
 
-        let weapon_services = player_pawn
+        /* Weapon services may be null or unreadable (dead, spectating, entity teardown) */
+        let Some(weapon_services) = player_pawn
             .m_pWeaponServices()?
             .value_reference(memory.view_arc())
-            .context("m_pWeaponServices nullptr")?;
-        let active_weapon_handle = weapon_services
+        else {
+            return Ok(());
+        };
+        let Ok(active_weapon_handle) = weapon_services
             .cast::<dyn CPlayer_WeaponServices>()
-            .m_hActiveWeapon()?;
+            .m_hActiveWeapon()
+        else {
+            return Ok(());
+        };
         let Some(weapon) = entities
             .entity_from_handle(&active_weapon_handle)
             .and_then(|weapon| weapon.value_reference(memory.view_arc()))

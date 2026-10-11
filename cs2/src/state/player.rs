@@ -105,13 +105,16 @@ impl State for StatePawnInfo {
             .cast::<dyn CCSPlayer_ItemServices>()
             .m_bHasDefuser()?;
 
+        /* Weapon services may be null or unreadable (dead, spectating, entity teardown) */
         let weapon_services = player_pawn
             .m_pWeaponServices()?
             .value_reference(memory.view_arc())
-            .context("m_pWeaponServices nullptr")?
-            .cast::<dyn CCSPlayer_WeaponServices>();
+            .map(|services| services.cast::<dyn CCSPlayer_WeaponServices>());
 
-        let ammo = weapon_services.m_iAmmo()?;
+        let ammo = weapon_services
+            .as_ref()
+            .and_then(|services| services.m_iAmmo().ok())
+            .unwrap_or_default();
 
         let mut player_has_flash = 0;
         let mut player_has_smoke = false;
@@ -157,15 +160,17 @@ impl State for StatePawnInfo {
         let position =
             nalgebra::Vector3::<f32>::from_column_slice(&game_screen_node.m_vecAbsOrigin()?);
 
-        let active_weapon_handle = weapon_services
-            .cast::<dyn CPlayer_WeaponServices>()
-            .m_hActiveWeapon()?;
-        let weapon_ref = if active_weapon_handle.is_valid() {
-            entities
-                .entity_from_handle(&active_weapon_handle)
-                .and_then(|weapon| weapon.value_reference(memory.view_arc()))
-        } else {
-            None
+        let active_weapon_handle = weapon_services.as_ref().and_then(|services| {
+            services
+                .cast::<dyn CPlayer_WeaponServices>()
+                .m_hActiveWeapon()
+                .ok()
+        });
+        let weapon_ref = match active_weapon_handle {
+            Some(handle) if handle.is_valid() => entities
+                .entity_from_handle(&handle)
+                .and_then(|weapon| weapon.value_reference(memory.view_arc())),
+            _ => None,
         };
         let weapon_type = if let Some(weapon) = &weapon_ref {
             weapon

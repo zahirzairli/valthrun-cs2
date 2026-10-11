@@ -193,63 +193,75 @@ impl RadarGenerator for CS2RadarGenerator {
                         );
                     }
                 },
+                /* C4 entities can be briefly unreadable (pickup, drop, detonation).
+                 * Skip them for this frame instead of failing the whole radar state. */
                 "C_PlantedC4" => {
-                    let planted_c4 = entity_identity
-                        .entity_ptr::<dyn C_PlantedC4>()?
-                        .value_copy(memory.view())?
-                        .context("null entity ptr")?;
-                    if !planted_c4.m_bC4Activated()? {
-                        /* skip this C4 */
-                        continue;
-                    }
-
-                    let position = planted_c4
-                        .m_pGameSceneNode()?
-                        .value_reference(memory.view_arc())
-                        .context("m_pGameSceneNode nullptr")?
-                        .m_vecAbsOrigin()?;
-                    let bomb_site = planted_c4.m_nBombSite()? as u8;
-
-                    match planted_c4_to_radar_state(self, planted_c4.deref()) {
-                        Ok(state) => {
-                            radar_state.planted_c4 = Some(RadarPlantedC4 {
-                                position,
-                                bomb_site,
-                                state,
-                            })
+                    let planted_c4 = (|| -> anyhow::Result<Option<RadarPlantedC4>> {
+                        let planted_c4 = entity_identity
+                            .entity_ptr::<dyn C_PlantedC4>()?
+                            .value_copy(memory.view())?
+                            .context("null entity ptr")?;
+                        if !planted_c4.m_bC4Activated()? {
+                            /* skip this C4 */
+                            return Ok(None);
                         }
-                        Err(err) => {
-                            log::warn!("Failed to generate planted C4 state: {}", err);
-                        }
+
+                        let position = planted_c4
+                            .m_pGameSceneNode()?
+                            .value_reference(memory.view_arc())
+                            .context("m_pGameSceneNode nullptr")?
+                            .m_vecAbsOrigin()?;
+                        let bomb_site = planted_c4.m_nBombSite()? as u8;
+                        let state = planted_c4_to_radar_state(self, planted_c4.deref())?;
+
+                        Ok(Some(RadarPlantedC4 {
+                            position,
+                            bomb_site,
+                            state,
+                        }))
+                    })();
+
+                    match planted_c4 {
+                        Ok(Some(planted_c4)) => radar_state.planted_c4 = Some(planted_c4),
+                        Ok(None) => {}
+                        Err(err) => log::warn!("Failed to generate planted C4 state: {:#}", err),
                     }
                 }
                 "C_C4" => {
-                    let c4 = entity_identity
-                        .entity_ptr::<dyn C_C4>()?
-                        .value_copy(memory.view())?
-                        .context("entity ptr null")?;
+                    let c4 = (|| -> anyhow::Result<Option<RadarC4>> {
+                        let c4 = entity_identity
+                            .entity_ptr::<dyn C_C4>()?
+                            .value_copy(memory.view())?
+                            .context("entity ptr null")?;
 
-                    if c4.m_bBombPlanted()? {
-                        /* this bomb has been planted already */
-                        continue;
+                        if c4.m_bBombPlanted()? {
+                            /* this bomb has been planted already */
+                            return Ok(None);
+                        }
+
+                        let owner = c4.m_hOwnerEntity()?;
+                        let position = c4
+                            .m_pGameSceneNode()?
+                            .value_reference(memory.view_arc())
+                            .context("m_pGameSceneNode nullptr")?
+                            .m_vecAbsOrigin()?;
+
+                        Ok(Some(RadarC4 {
+                            entity_id: entity_identity.handle::<()>()?.get_entity_index(),
+                            position,
+                            owner_entity_id: if owner.is_valid() {
+                                Some(owner.get_entity_index())
+                            } else {
+                                None
+                            },
+                        }))
+                    })();
+
+                    match c4 {
+                        Ok(Some(c4)) => radar_state.c4_entities.push(c4),
+                        Ok(None) => {}
+                        Err(err) => log::warn!("Failed to generate C4 state: {:#}", err),
                     }
-
-                    let owner = c4.m_hOwnerEntity()?;
-                    let position = c4
-                        .m_pGameSceneNode()?
-                        .value_reference(memory.view_arc())
-                        .context("m_pGameSceneNode nullptr")?
-                        .m_vecAbsOrigin()?;
-
-                    radar_state.c4_entities.push(RadarC4 {
-                        entity_id: entity_identity.handle::<()>()?.get_entity_index(),
-                        position,
-                        owner_entity_id: if owner.is_valid() {
-                            Some(owner.get_entity_index())
-                        } else {
-                            None
-                        },
-                    });
                 }
                 _ => {}
             }
