@@ -268,10 +268,18 @@ impl StateRegistry {
             Some(value) => value,
             None => {
                 /* create a new value */
-                let state = Box::new(
-                    T::create(self, params)
-                        .with_context(|| format!("create {}", any::type_name::<T>()))?,
-                );
+                let state = match T::create(self, params) {
+                    Ok(state) => Box::new(state),
+                    Err(error) => {
+                        /*
+                         * The slot has been reserved for this key but holds no value.
+                         * invalidate_states skips empty slots, so release it here or it leaks.
+                         */
+                        self.allocator.borrow_mut().free_entry(&cache_key);
+                        return Err(error)
+                            .with_context(|| format!("create {}", any::type_name::<T>()));
+                    }
+                };
                 **value = Some(InternalState {
                     value: state,
                     value_update: value_update_proxy::<T>,
@@ -410,6 +418,30 @@ mod test {
     fn test_creation_1() {
         let states = StateRegistry::new(4);
         assert!(states.resolve::<StateC>(0).is_ok());
+    }
+
+    struct StateFailing;
+    impl State for StateFailing {
+        type Parameter = u64;
+
+        fn create(_states: &StateRegistry, _params: Self::Parameter) -> anyhow::Result<Self> {
+            anyhow::bail!("creation failed")
+        }
+    }
+
+    #[test]
+    fn test_failed_create_releases_slot() {
+        let states = StateRegistry::new(1);
+        for param in 0..8 {
+            let error = states
+                .resolve::<StateFailing>(param)
+                .err()
+                .expect("creation to fail");
+            assert!(format!("{:#}", error).contains("creation failed"));
+        }
+
+        /* the only slot must still be available */
+        assert!(states.resolve::<StateA>(()).is_ok());
     }
 
     #[test]
