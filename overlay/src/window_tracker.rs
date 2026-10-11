@@ -23,6 +23,7 @@ use windows::{
                 GetWindowLongPtrA,
                 GetWindowRect,
                 GetWindowThreadProcessId,
+                IsWindowVisible,
                 MoveWindow,
                 SendMessageA,
                 SetWindowLongPtrA,
@@ -76,6 +77,14 @@ impl OverlayTarget {
                         GetWindowThreadProcessId(current_hwnd, Some(&mut window_process_id)) != 0
                     };
                     if !success || window_process_id != *process_id {
+                        continue;
+                    }
+
+                    if !unsafe { IsWindowVisible(current_hwnd).as_bool() } {
+                        /*
+                         * Skip hidden helper windows (e.g. D3DProxyWindow) which have the size of the
+                         * game window but get recreated, which would make the overlay exit.
+                         */
                         continue;
                     }
 
