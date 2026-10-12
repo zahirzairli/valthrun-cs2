@@ -248,7 +248,8 @@ pub struct CSchemaClassBinding {
     #[field(offset = 0x30)]
     pub fields: Ptr64<[Copy<dyn CSchemaClassField>]>,
 
-    #[field(offset = 0x40)]
+    /* moved from 0x40 with CS2 revision 11106093 (Oct 08 2026) */
+    #[field(offset = 0x38)]
     pub base_class: Ptr64<dyn CSchemaClassInheritance>,
 
     #[field(offset = 0x48)]

@@ -132,6 +132,9 @@ fn parse_type(
                 "float32" => "f32",
                 "float64" => "f64",
 
+                /* e.g. the target of a void* field, which has no Rust type */
+                "void" => return Ok(None),
+
                 var_type => anyhow::bail!("Unknown builtin type {}", var_type),
             }
             .to_string();
