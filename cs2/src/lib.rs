@@ -32,12 +32,10 @@ pub use class_name_cache::*;
 
 mod pattern;
 pub use pattern::*;
-pub use vtd_libum::{
-    protocol::command::{
-        KeyboardState,
-        MouseState,
-    },
+pub use driver::{
     InterfaceError,
+    KeyboardState,
+    MouseState,
 };
 
 pub mod schema_runtime;

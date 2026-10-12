@@ -25,22 +25,13 @@ use utils_state::{
     StateCacheType,
     StateRegistry,
 };
-use vtd_libum::{
-    protocol::{
-        command::{
-            KeyboardState,
-            MouseState,
-            ProcessProtectionMode,
-        },
-        types::{
-            DirectoryTableType,
-            DriverFeature,
-            ProcessId,
-            ProcessModuleInfo,
-        },
-    },
+use driver::{
     DriverInterface,
     InterfaceError,
+    KeyboardState,
+    MouseState,
+    ProcessId,
+    ProcessModuleInfo,
 };
 
 use crate::{
@@ -99,32 +90,12 @@ pub struct CS2Handle {
 
 impl CS2Handle {
     pub fn create(metrics: bool) -> anyhow::Result<Arc<Self>> {
-        let interface = DriverInterface::create_from_env()?;
-        if metrics {
-            let _ = interface.add_metrics_record("application-type", env!("CARGO_CRATE_NAME"));
-        }
-
-        if interface
-            .driver_features()
-            .contains(DriverFeature::ProcessProtectionKernel)
-        {
-            /*
-             * Please no not analyze me:
-             * https://www.unknowncheats.me/wiki/Valve_Anti-Cheat:VAC_external_tool_detection_(and_more)
-             *
-             * Even tough we don't have open handles to CS2 we don't want anybody to read our process.
-             */
-            if let Err(err) = interface.toggle_process_protection(ProcessProtectionMode::Kernel) {
-                log::warn!("Failed to enable process protection: {}", err)
-            };
-        }
+        let interface = DriverInterface::create()?;
 
         let process = interface
             .list_processes()?
             .into_iter()
-            .filter(|process| {
-                process.get_image_base_name().unwrap_or_default() == obfstr!("cs2.exe")
-            })
+            .filter(|process| process.image_name.eq_ignore_ascii_case(obfstr!("cs2.exe")))
             .collect::<Vec<_>>();
         let process = if process.is_empty() {
             return Err(InterfaceError::ProcessUnknown.into());
@@ -134,7 +105,7 @@ impl CS2Handle {
             process.first().unwrap()
         };
 
-        let modules = interface.list_modules(process.process_id, DirectoryTableType::Default)?;
+        let modules = interface.list_modules(process.process_id)?;
         log::debug!(
             "{}. Process id {}",
             obfstr!("Successfully initialized CS2 handle"),
@@ -145,7 +116,7 @@ impl CS2Handle {
         for module in modules.iter() {
             log::trace!(
                 "  - {} ({:X} - {:X})",
-                module.get_base_dll_name().unwrap_or("unknown"),
+                module.name,
                 module.base_address,
                 module.base_address + module.module_size
             );
@@ -164,7 +135,7 @@ impl CS2Handle {
     fn get_module_info(&self, target: Module) -> Option<&ProcessModuleInfo> {
         self.modules
             .iter()
-            .find(|module| module.get_base_dll_name() == Some(target.get_module_name()))
+            .find(|module| module.name.eq_ignore_ascii_case(target.get_module_name()))
     }
 
     pub fn process_id(&self) -> ProcessId {
@@ -187,9 +158,8 @@ impl CS2Handle {
             return;
         }
 
-        let _ = self
-            .ke_interface
-            .add_metrics_record(record_type, record_payload);
+        /* The built-in driver has no telemetry, so records are only logged locally. */
+        log::trace!("Metrics record {}: {}", record_type, record_payload);
     }
 
     pub fn module_address(&self, module: Module, address: u64) -> Option<u64> {
@@ -210,18 +180,13 @@ impl CS2Handle {
     }
 
     pub fn read_sized<T: Copy>(&self, address: u64) -> anyhow::Result<T> {
-        Ok(self
-            .ke_interface
-            .read(self.process_id, DirectoryTableType::Default, address)?)
+        Ok(self.ke_interface.read(self.process_id, address)?)
     }
 
     pub fn read_slice<T: Copy>(&self, address: u64, buffer: &mut [T]) -> anyhow::Result<()> {
-        Ok(self.ke_interface.read_slice(
-            self.process_id,
-            DirectoryTableType::Default,
-            address,
-            buffer,
-        )?)
+        Ok(self
+            .ke_interface
+            .read_slice(self.process_id, address, buffer)?)
     }
 
     pub fn read_string(
@@ -265,12 +230,8 @@ impl CS2Handle {
 
         let mut buffer = Vec::<u8>::with_capacity(length);
         buffer.resize(length, 0);
-        self.ke_interface.read_slice(
-            self.process_id,
-            DirectoryTableType::Default,
-            address,
-            &mut buffer,
-        )?;
+        self.ke_interface
+            .read_slice(self.process_id, address, &mut buffer)?;
 
         for (index, window) in buffer.windows(pattern.length()).enumerate() {
             if !pattern.is_matching(window) {

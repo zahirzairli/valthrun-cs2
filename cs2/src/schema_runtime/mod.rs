@@ -6,7 +6,6 @@ use std::{
 use anyhow::Context;
 use sha1::Digest;
 use utils_state::StateRegistry;
-use vtd_libum::InterfaceError;
 
 use crate::{
     schema_runtime::{
@@ -100,22 +99,7 @@ pub fn setup(registry: &StateRegistry, options: &SetupOptions) -> anyhow::Result
     };
 
     log::info!("Loading CS2 schema (offsets) from ingame CS2 schema system",);
-    let runtime_state = match RuntimeSchemaState::from_game(registry) {
-        Ok(schema) => schema,
-        Err(error) => {
-            if let Some(inner) = error.downcast_ref::<InterfaceError>() {
-                if matches!(inner, InterfaceError::MemoryAccessPagedOut) {
-                    log::error!(
-                        "Could not load schema from game memory as memory has been paged out."
-                    );
-                    log::error!("Please restart the game and try again. Once succeeded the schema will be cached.");
-                    anyhow::bail!("schema memory paged out");
-                }
-            }
-
-            anyhow::bail!(error);
-        }
-    };
+    let runtime_state = RuntimeSchemaState::from_game(registry)?;
 
     if let Some(cache_file) = cache_file {
         if let Some(parent) = cache_file.parent() {

@@ -812,6 +812,7 @@ dependencies = [
  "cs2-schema-definition",
  "cs2-schema-generated",
  "cs2-schema-provider",
+ "driver",
  "env_logger",
  "hex",
  "log",
@@ -822,7 +823,6 @@ dependencies = [
  "serde_json",
  "sha1",
  "utils-state",
- "vtd-libum",
 ]
 
 [[package]]
@@ -983,6 +983,16 @@ name = "dpi"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f25c0e292a7ca6d6498557ff1df68f32c99850012b6ea401cf8daf771f22ff53"
+
+[[package]]
+name = "driver"
+version = "0.5.20"
+dependencies = [
+ "log",
+ "obfstr",
+ "thiserror",
+ "windows 0.58.0",
+]
 
 [[package]]
 name = "encoding_rs"
@@ -3856,27 +3866,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vtd-libum"
-version = "0.1.0"
-source = "git+https://github.com/Valthrun/valthrun-driver?rev=bc88b65#bc88b6517b4430aefc41f16ba46025efdf05afa1"
-dependencies = [
- "libloading",
- "log",
- "obfstr",
- "thiserror",
- "vtd-protocol",
- "windows 0.48.0",
-]
-
-[[package]]
-name = "vtd-protocol"
-version = "0.1.0"
-source = "git+https://github.com/Valthrun/valthrun-driver?rev=bc88b65#bc88b6517b4430aefc41f16ba46025efdf05afa1"
-dependencies = [
- "bitflags 2.6.0",
-]
 
 [[package]]
 name = "walkdir"

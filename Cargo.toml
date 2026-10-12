@@ -15,6 +15,7 @@ members = [
     "radar/server-standalone",
     "radar/shared",
 
+    "driver",
     "cs2",
     "overlay",
     "controller",

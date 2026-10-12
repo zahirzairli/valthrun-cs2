@@ -49,19 +49,27 @@ To access Valthruns settings overlay press `PAUSE`.
 - Player competitive ranks / wins
 
 # How to use / Getting started
-Please follow this guide to get started:  
-https://wiki.valth.run/getting-started/
+This fork needs no separate driver. Memory access is built into `controller.exe` (see `driver/`):
+it opens CS2 with the standard Windows APIs (`OpenProcess`, `ReadProcessMemory`) and never writes to the game.
+
+1. Install [Rust](https://rustup.rs/) and the [Visual Studio 2022 Build Tools](https://visualstudio.microsoft.com/downloads/)
+   with the **Desktop development with C++** workload.
+2. Download this repository (Code > Download ZIP) and extract it.
+3. Open **x64 Native Tools Command Prompt for VS 2022**, go to the extracted folder and run:
+   ```
+   cargo build --release -p controller
+   ```
+4. Start CS2 with the launch option `-insecure` (VAC disabled).
+5. Run `targetelease\controller.exe`. Press `PAUSE` to open the settings.
 
 # Troubleshooting
-If you are having issues mapping the kernel driver or starting the controller, please take a look [here](https://wiki.valth.run/category/troubleshooting):  
-https://wiki.valth.run/category/troubleshooting
-  
-The issue you encounter is most likely covered. If you still have any questions or need assistance, feel free to checkout the official Valthrun Discord server ([click to join](https://discord.gg/ecKbpAPW5T)).
+- `Could not find CS2 process`: start CS2 before the controller.
+- `Could not open the CS2 process for reading`: CS2 runs as administrator, so run the controller as administrator too.
+- `LNK1104: cannot open file 'msvcrt.lib'`: build from the x64 Native Tools Command Prompt for VS 2022.
 
 # VAC
-The same considerations as mentioned in [this link](https://github.com/dretax/GarHal_CSGO#starting-driver) have been taken into account.  
-With these precautions and some minor improvements, such as omitting the Valthrun identifier and using xor encryption for strings, the driver/overlay should avoid VAC detection. However, I must clarify that I haven't extensively studied VAC, so my conclusion is speculative. Personally, I have been using a C based driver/overlay like this with CSGO for several years without ever getting VAC banned. But be aware of overwatch!  
-With VAC live being enabled now, use this with caution. As always take the necessary precautions into consideration.
+The controller holds an open handle to CS2, draws an overlay on top of the game and can send simulated input.
+VAC can see all of this, so only use it with `-insecure` (offline or against bots). Using it on VAC secured servers can get your account banned.
 
 # Screenshots
 ![](./img/showcase_01.png)
