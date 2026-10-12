@@ -26,7 +26,7 @@ Due to Valthrun being read-only (as of now), there are limitations on what featu
 Regardless of this limitation, Valthrun supports the following features:  
 
 - External radar  
-  Publish your game for everybody on https://radar.valth.run
+  Publish your game to a radar server you host yourself (`radar-server-standalone`, default `ws://127.0.0.1:7229/publish`), or to the public server https://radar.valth.run with `--publish-url wss://radar.valth.run/publish`
 - Player ESP  
   ESP with a lot of configuration possibilities like: `Skeleton`, `Boxes3D` and `Boxes2D` 
   - Configurable colors to distinguish between enemy and team players
